@@ -1,6 +1,6 @@
 import re
 import httpx
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageType
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
@@ -21,12 +21,16 @@ class BypassPlugin(Star):
         self.timeout = 15.0
         self.group_last_call = {}
 
-    @filter.group_message()
     async def on_group_message(self, event: AstrMessageEvent):
+        # 只处理群消息
+        if event.message_type != MessageType.GROUP:
+            return
+
         message = event.message_str
         urls = re.findall(r'https?://[^\s]+', message)
         if not urls:
             return
+
         target_url = None
         for url in urls:
             for pattern in self.patterns:
@@ -38,8 +42,9 @@ class BypassPlugin(Star):
         if not target_url:
             return
 
-        group_id = event.message_obj.group_id
-        now = event.message_obj.timestamp
+        group_id = event.group_id
+        now = event.timestamp
+
         if group_id in self.group_last_call:
             if now - self.group_last_call[group_id] < 30:
                 yield event.plain_result("请求过于频繁，请稍后再试")
@@ -55,7 +60,7 @@ class BypassPlugin(Star):
 
     async def bypass(self, url: str):
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncAsyncClient(timeout=self.timeout) as client:
                 resp = await client.get(self.api_url, params={'url': url})
                 resp.raise_for_status()
                 data = resp.json()
