@@ -3,6 +3,7 @@ import httpx
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+from astrbot.api.event.filter import EventMessageType
 
 @register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
 class BypassPlugin(Star):
@@ -17,19 +18,24 @@ class BypassPlugin(Star):
             r'loot-link\.com',
             r'rekonise\.com',
         ]
-        self.api_url = "https://api.izen.lol/bypass"
+        # 多个候选 API 端点（按可能性排序）
+        self.api_endpoints = [
+            "https://api.izen.lol/bypass",
+            "https://api.izen.lol/v1/bypass",
+            "https://api.izen.lol/bypassv2",
+            "https://api.izen.lol/api/bypass",
+            "https://zen-api.bypass.lol/bypass",
+            "https://bypass.city/api/bypass",
+        ]
         self.timeout = 15.0
         self.group_last_call = {}
 
-    # 修复点：将 GROUP 改为 GROUP_MESSAGE
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
-        """监听所有群聊消息"""
         message = event.message_str
         urls = re.findall(r'https?://[^\s]+', message)
         if not urls:
             return
-
         target_url = None
         for url in urls:
             for pattern in self.patterns:
@@ -50,20 +56,30 @@ class BypassPlugin(Star):
         self.group_last_call[group_id] = now
 
         yield event.plain_result("正在处理，请稍候...")
-        result = await self.bypass(target_url)
+        result = await self.try_bypass(target_url)
         if result['success']:
             yield event.plain_result(f"✅ 绕过成功！\n结果: {result['result']}")
         else:
             yield event.plain_result(f"❌ 绕过失败: {result['error']}")
 
+    async def try_bypass(self, url: str):
+        """依次尝试多个 API 端点"""
+        for endpoint in self.api_endpoints:
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    resp = await client.get(endpoint, params={'url': url})
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get('success') and data.get('result'):
+                            return {'success': True, 'result': data['result']}
+                        elif data.get('key'):
+                            return {'success': True, 'result': data['key']}
+                    # 状态码不是200或返回格式不对，继续尝试下一个端点
+                logger.warning(f"端点 {endpoint} 返回非200或无效数据")
+            except Exception as e:
+                logger.warning(f"端点 {endpoint} 请求失败: {e}")
+                continue
+        return {'success': False, 'error': '所有 API 端点均不可用，请稍后重试'}
+
     async def bypass(self, url: str):
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.get(self.api_url, params={'url': url})
-                resp.raise_for_status()
-                data = resp.json()
-                if data.get('success') and data.get('result'):
-                    return {'success': True, 'result': data['result']}
-                return {'success': False, 'error': data.get('error', '未知错误')}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
+        return await self.try_bypass(url)
