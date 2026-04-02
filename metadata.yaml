@@ -1,6 +1,6 @@
 name: astrbot_plugin_bypass
 desc: 自动绕过 Platoboost/Delta 卡密和广告链接
-author: YourName
+author: 阿玛特拉斯
 version: 1.0.0
 support_platforms:
   - aiocqhttp
