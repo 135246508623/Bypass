@@ -4,10 +4,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-# 从 filter 模块导入 EventMessageType 枚举，用于指定消息类型过滤
-from astrbot.api.event.filter import EventMessageType
-
-@register("bypass_helper", "阿玛特拉斯", "自动绕过广告/卡密链接", "1.0.0")
+@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -24,7 +21,8 @@ class BypassPlugin(Star):
         self.timeout = 15.0
         self.group_last_call = {}
 
-    @filter.event_message_type(EventMessageType.GROUP)
+    # 修复点：将 GROUP 改为 GROUP_MESSAGE
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
         """监听所有群聊消息"""
         message = event.message_str
