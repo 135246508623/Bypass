@@ -5,10 +5,11 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.event.filter import EventMessageType
 
-@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
+@register("bypass_helper", "YourName", "自动绕过广告/卡密链接（仅响应/getkey）", "1.0.2")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+        # 支持的链接域名（用于校验）
         self.patterns = [
             r'auth\.platorelay\.com',
             r'auth\.platoboost\.(?:com|net|click|app|me)',
@@ -18,34 +19,30 @@ class BypassPlugin(Star):
             r'loot-link\.com',
             r'rekonise\.com',
         ]
-        # 多个候选 API 端点（按可能性排序）
+        # 更新后的多个候选 API 端点（按可能性排序）
         self.api_endpoints = [
+            "https://bypass.vip/api/v2/bypass",
+            "https://bypassunlock.com/api/bypass",
+            "https://api.bypass.city/v1/bypass",
             "https://api.izen.lol/bypass",
             "https://api.izen.lol/v1/bypass",
             "https://api.izen.lol/bypassv2",
             "https://api.izen.lol/api/bypass",
-            "https://zen-api.bypass.lol/bypass",
-            "https://bypass.city/api/bypass",
         ]
         self.timeout = 15.0
         self.group_last_call = {}
 
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
-        message = event.message_str
-        urls = re.findall(r'https?://[^\s]+', message)
-        if not urls:
+        message = event.message_str.strip()
+        if not message.lower().startswith('/getkey'):
             return
-        target_url = None
-        for url in urls:
-            for pattern in self.patterns:
-                if re.search(pattern, url, re.I):
-                    target_url = url
-                    break
-            if target_url:
-                break
-        if not target_url:
+
+        parts = message.split(maxsplit=1)
+        if len(parts) < 2:
+            yield event.plain_result("❌ 用法：/getkey <链接>")
             return
+        target_url = parts[1].strip()
 
         group_id = event.message_obj.group_id
         now = event.message_obj.timestamp
@@ -74,12 +71,8 @@ class BypassPlugin(Star):
                             return {'success': True, 'result': data['result']}
                         elif data.get('key'):
                             return {'success': True, 'result': data['key']}
-                    # 状态码不是200或返回格式不对，继续尝试下一个端点
-                logger.warning(f"端点 {endpoint} 返回非200或无效数据")
+                    logger.warning(f"端点 {endpoint} 返回非200或无效数据")
             except Exception as e:
                 logger.warning(f"端点 {endpoint} 请求失败: {e}")
                 continue
         return {'success': False, 'error': '所有 API 端点均不可用，请稍后重试'}
-
-    async def bypass(self, url: str):
-        return await self.try_bypass(url)
