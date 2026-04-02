@@ -4,11 +4,13 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0", "https://github.com/你的用户名/astrbot_plugin_bypass")
+# 从 filter 模块导入 EventMessageType 枚举，用于指定消息类型过滤
+from astrbot.api.event.filter import EventMessageType
+
+@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 支持的链接域名
         self.patterns = [
             r'auth\.platorelay\.com',
             r'auth\.platoboost\.(?:com|net|click|app|me)',
@@ -22,17 +24,14 @@ class BypassPlugin(Star):
         self.timeout = 15.0
         self.group_last_call = {}
 
-    @filter.message()  # 修改点1: 使用通用的 message 装饰器
-    async def on_message(self, event: AstrMessageEvent):
-        # 修改点2: 手动判断消息类型，只处理群聊消息
-        if not event.is_group_message:
-            return
-
+    @filter.event_message_type(EventMessageType.GROUP)
+    async def on_group_message(self, event: AstrMessageEvent):
+        """监听所有群聊消息"""
         message = event.message_str
         urls = re.findall(r'https?://[^\s]+', message)
         if not urls:
             return
-        
+
         target_url = None
         for url in urls:
             for pattern in self.patterns:
@@ -44,7 +43,6 @@ class BypassPlugin(Star):
         if not target_url:
             return
 
-        # 限频检查（每个群每30秒最多1次）
         group_id = event.message_obj.group_id
         now = event.message_obj.timestamp
         if group_id in self.group_last_call:
