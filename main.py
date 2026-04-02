@@ -21,12 +21,17 @@ class BypassPlugin(Star):
         self.timeout = 15.0
         self.group_last_call = {}
 
-    @filter.group_message()
-    async def on_group_message(self, event: AstrMessageEvent):
+    @filter.message()   # 改为 message 装饰器
+    async def on_message(self, event: AstrMessageEvent):
+        # 只处理群消息，私聊忽略
+        if not event.is_group_message:
+            return
+
         message = event.message_str
         urls = re.findall(r'https?://[^\s]+', message)
         if not urls:
             return
+        
         target_url = None
         for url in urls:
             for pattern in self.patterns:
@@ -38,6 +43,7 @@ class BypassPlugin(Star):
         if not target_url:
             return
 
+        # 限频检查（每个群每30秒最多1次）
         group_id = event.message_obj.group_id
         now = event.message_obj.timestamp
         if group_id in self.group_last_call:
