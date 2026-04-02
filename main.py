@@ -7,7 +7,7 @@ from astrbot.api import logger
 # 从 filter 模块导入 EventMessageType 枚举，用于指定消息类型过滤
 from astrbot.api.event.filter import EventMessageType
 
-@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
+@register("bypass_helper", "阿玛特拉斯", "自动绕过广告/卡密链接", "1.0.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
