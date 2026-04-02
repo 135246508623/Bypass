@@ -4,10 +4,11 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0")
+@register("bypass_helper", "YourName", "自动绕过广告/卡密链接", "1.0.0", "https://github.com/你的用户名/astrbot_plugin_bypass")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+        # 支持的链接域名
         self.patterns = [
             r'auth\.platorelay\.com',
             r'auth\.platoboost\.(?:com|net|click|app|me)',
@@ -21,9 +22,9 @@ class BypassPlugin(Star):
         self.timeout = 15.0
         self.group_last_call = {}
 
-    @filter.message()   # 改为 message 装饰器
+    @filter.message()  # 修改点1: 使用通用的 message 装饰器
     async def on_message(self, event: AstrMessageEvent):
-        # 只处理群消息，私聊忽略
+        # 修改点2: 手动判断消息类型，只处理群聊消息
         if not event.is_group_message:
             return
 
