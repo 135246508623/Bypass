@@ -1,3 +1,4 @@
 httpx
-selenium
-undetected-chromedriver
+# 以下为可选，手机环境一般不需要
+# selenium
+# undetected-chromedriver
