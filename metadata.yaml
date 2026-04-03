@@ -1,7 +1,7 @@
 name: astrbot_plugin_bypass
-desc: 全能卡密获取器（API池 + 自建回退 + Selenium）
+desc: 全能卡密获取器（优化卡密提取，支持多种格式）
 author: 阿玛特拉斯
-version: 2.0.0
+version: 2.1.0
 support_platforms:
   - aiocqhttp
 astrbot_version: ">=4.16,<5"
