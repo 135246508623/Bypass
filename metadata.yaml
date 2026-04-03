@@ -1,6 +1,7 @@
 name: astrbot_plugin_bypass
-desc: 自动绕过 Platoboost/Delta 卡密和广告链接
+desc: 全能卡密获取器（API池 + 自建回退 + Selenium）
 author: 阿玛特拉斯
-version: 1.0.0
+version: 2.0.0
 support_platforms:
   - aiocqhttp
+astrbot_version: ">=4.16,<5"
