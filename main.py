@@ -7,7 +7,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.event.filter import EventMessageType
 
-# ========== 可选依赖：如果安装了 selenium 和 undetected_chromedriver 则启用 ==========
+# 可选依赖：Selenium（手机环境一般不用，但保留代码）
 try:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
@@ -15,16 +15,15 @@ try:
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     import undetected_chromedriver as uc
-    SELENIUM_AVAILABLE = True
+    SELENIUM_AVAILABLE = False   # 手机环境默认关闭，如需开启改为 True 并安装依赖
 except ImportError:
     SELENIUM_AVAILABLE = False
-    logger.warning("Selenium 未安装，浏览器自动化功能不可用")
 
-@register("astrbot_plugin_bypass", "YourName", "全能卡密获取器（API池+自建回退+Selenium+半自动验证码）", "2.0.0")
+@register("astrbot_plugin_bypass", "YourName", "全能卡密获取器（优化卡密提取）", "2.1.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # ==================== 1. 第三方 API 池（按优先级排序） ====================
+        # ==================== API 端点池（按优先级） ====================
         self.api_endpoints = [
             "https://bypass.vip/api/bypass",
             "https://bypass.vip/bypass",
@@ -36,11 +35,10 @@ class BypassPlugin(Star):
             "https://zen-api.bypass.lol/bypass",
             "https://api.bypass.vip/v2/bypass",
             "https://api.bypass.vip/v3/bypass",
-            # 你可以继续添加更多
         ]
-        # ==================== 2. 自建本地 API（如果有） ====================
-        self.local_api_url = None  # 例如 "http://127.0.0.1:5000/bypass"
-        # ==================== 3. 限频设置 ====================
+        # ==================== 本地自建 API（可选） ====================
+        self.local_api_url = None   # 例如 "http://127.0.0.1:5000/bypass"
+        # ==================== 限频设置 ====================
         self.timeout = 15.0
         self.group_last_call = {}
 
@@ -82,21 +80,20 @@ class BypassPlugin(Star):
                 logger.info(f"API {endpoint} 成功获取卡密: {key}")
                 return {'success': True, 'result': key}
         
-        # 2. 尝试自建本地 API（如果有）
+        # 2. 尝试本地自建 API（如果配置了）
         if self.local_api_url:
             key = await self.try_local_api(url)
             if key:
                 logger.info(f"本地 API 成功获取卡密: {key}")
                 return {'success': True, 'result': key}
         
-        # 3. 尝试 Selenium 自动化（如果可用）
+        # 3. 尝试 Selenium（如果开启）
         if SELENIUM_AVAILABLE:
             key = await self.try_selenium(url)
             if key:
                 logger.info(f"Selenium 成功获取卡密: {key}")
                 return {'success': True, 'result': key}
         
-        # 4. 所有方法都失败
         return {'success': False, 'error': '所有绕过方法均失败，请稍后重试或手动访问'}
 
     # -------------------- 方法1：调用第三方 API --------------------
@@ -105,12 +102,14 @@ class BypassPlugin(Star):
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.get(endpoint, params={'url': url})
                 if resp.status_code == 200:
+                    # 打印前500字符便于调试（可在日志中查看）
+                    logger.debug(f"API {endpoint} 返回: {resp.text[:500]}")
                     return self._extract_key_from_text(resp.text)
         except Exception as e:
             logger.warning(f"API {endpoint} 请求异常: {e}")
         return None
 
-    # -------------------- 方法2：调用本地自建 API --------------------
+    # -------------------- 方法2：本地自建 API --------------------
     async def try_local_api(self, url: str) -> Optional[str]:
         if not self.local_api_url:
             return None
@@ -123,41 +122,36 @@ class BypassPlugin(Star):
             logger.warning(f"本地 API 请求失败: {e}")
         return None
 
-    # -------------------- 方法3：Selenium 浏览器自动化（半自动，验证码需手动） --------------------
+    # -------------------- 方法3：Selenium（半自动，手机慎用） --------------------
     async def try_selenium(self, url: str) -> Optional[str]:
         if not SELENIUM_AVAILABLE:
             return None
-        # 使用线程池执行阻塞的 Selenium 代码
+        # 由于 Selenium 是阻塞的，放到线程池执行
         return await asyncio.to_thread(self._selenium_bypass, url)
 
     def _selenium_bypass(self, url: str) -> Optional[str]:
         driver = None
         try:
-            # 使用 undetected_chromedriver 降低检测风险
             options = uc.ChromeOptions()
-            options.add_argument('--headless')  # 无头模式，如需手动验证码可改为 False
+            options.add_argument('--headless')  # 无头模式，如需手动验证码可去掉
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             driver = uc.Chrome(options=options)
             driver.get(url)
-            # 等待页面加载
             WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             # 尝试点击 Continue 按钮
-            continue_selectors = [
+            for xpath in [
                 "//button[contains(text(), 'Continue')]",
                 "//button[contains(text(), '继续')]",
-                "//a[contains(text(), 'Continue')]",
-            ]
-            for xp in continue_selectors:
+                "//a[contains(text(), 'Continue')]"
+            ]:
                 try:
-                    btn = driver.find_element(By.XPATH, xp)
+                    btn = driver.find_element(By.XPATH, xpath)
                     btn.click()
                     break
                 except:
                     pass
-            # 等待可能出现的验证码（如果无头模式则无法手动，所以这里仅等待几秒）
-            # 如果遇到验证码且为无头模式，基本会失败。你可以改为 headless=False 并手动完成
-            asyncio.sleep(5)  # 简单等待
+            asyncio.sleep(3)  # 等待页面更新
             page_text = driver.page_source
             return self._extract_key_from_text(page_text)
         except Exception as e:
@@ -167,27 +161,19 @@ class BypassPlugin(Star):
             if driver:
                 driver.quit()
 
-    # -------------------- 卡密提取工具 --------------------
+    # -------------------- 增强版卡密提取 --------------------
     def _extract_key_from_text(self, text: str) -> Optional[str]:
-        # JSON 解析
+        """
+        从响应文本中提取卡密，支持多种格式：
+        - FREE_ 后跟32位十六进制
+        - FREE 无下划线后跟32位十六进制
+        - 纯32位十六进制（自动补 FREE_）
+        - 20~40位字母数字组合
+        - 纯链接
+        """
+        # 1. 尝试 JSON 解析
         try:
             import json
             data = json.loads(text)
             if data.get('success') and data.get('result'):
                 return data['result']
-            if data.get('key'):
-                return data['key']
-        except:
-            pass
-        # 匹配 FREE_xxx 格式
-        match = re.search(r'FREE_[a-fA-F0-9]{32}', text, re.IGNORECASE)
-        if match:
-            return match.group(0)
-        # 匹配 20-40 位字母数字（常见卡密）
-        match = re.search(r'\b[A-Za-z0-9]{20,40}\b', text)
-        if match:
-            return match.group(0)
-        # 匹配纯链接
-        if text.startswith('http://') or text.startswith('https://'):
-            return text.strip()
-        return None
