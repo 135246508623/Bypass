@@ -1,7 +1,7 @@
 name: astrbot_plugin_bypass
-desc: 全自动解卡机器人（内置浏览器）
+desc: 全自动解卡机器人（Selenium + webdriver-manager）
 author: 阿玛特拉斯
-version: 3.0.0
+version: 3.1.0
 support_platforms:
   - aiocqhttp
 astrbot_version: ">=4.16,<5"
