@@ -1,2 +1,3 @@
+httpx
 selenium
 webdriver-manager
