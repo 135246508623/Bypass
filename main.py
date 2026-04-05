@@ -16,9 +16,9 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.event.filter import EventMessageType
 
-HEADLESS = False   # 半自动模式（遇到验证码时手动处理）
+HEADLESS = False
 
-@register("astrbot_plugin_bypass", "YourName", "高速解卡机器人（selenium + webdriver-manager）", "4.3.0")
+@register("astrbot_plugin_bypass", "YourName", "智能解卡机器人（自动点击Copy按钮）", "4.5.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -76,62 +76,112 @@ class BypassPlugin(Star):
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-            # 指定 Chromium 路径（请确认你的系统中 chromium 位于 /usr/bin/chromium）
             chrome_options.binary_location = "/usr/bin/chromium"
 
-            # 自动下载并管理 ChromeDriver
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
 
             logger.info(f"正在访问: {url}")
             driver.get(url)
-
-            # 等待页面主体加载
             WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
 
-            # 尝试点击 Continue 按钮
-            continue_selectors = [
-                "//button[contains(text(), 'Continue')]",
-                "//button[contains(text(), '继续')]",
-                "//a[contains(text(), 'Continue')]",
-                "//*[@id='continueBtn']"
-            ]
-            for selector in continue_selectors:
-                try:
-                    btn = driver.find_element(By.XPATH, selector)
-                    btn.click()
-                    logger.info("已点击 Continue 按钮")
-                    break
-                except:
-                    pass
+            max_clicks = 5
+            click_count = 0
+            last_url = driver.current_url
 
+            while click_count < max_clicks:
+                page_source = driver.page_source
+                key = self._extract_key_from_text(page_source)
+                if key:
+                    logger.info(f"成功提取卡密: {key}")
+                    return {'success': True, 'result': key}
+
+                # 检测成功白名单页面
+                if 'Successfully whitelisted' in page_source:
+                    logger.info("检测到成功白名单页面，等待卡密出现...")
+                    time.sleep(3)
+                    key = self._extract_key_from_text(driver.page_source)
+                    if key:
+                        return {'success': True, 'result': key}
+                    # 尝试从 body 文本中提取
+                    body_text = driver.find_element(By.TAG_NAME, "body").text
+                    key_match = re.search(r'FREE_[a-fA-F0-9]{32}', body_text)
+                    if key_match:
+                        return {'success': True, 'result': key_match.group(0)}
+
+                # 检测验证码或广告任务
+                if 'hcaptcha' in page_source.lower() or 'recaptcha' in page_source.lower():
+                    logger.info("检测到验证码，进入半自动处理模式")
+                    if not HEADLESS:
+                        input("⚠️ 请在浏览器中手动完成验证码，完成后按回车键继续...")
+                        continue
+                    else:
+                        return {'success': False, 'error': '需要验证码，请稍后重试或使用半自动模式'}
+                elif '点击并发送短信' in page_source or '接受通知' in page_source:
+                    logger.info("检测到广告任务列表，请手动完成")
+                    if not HEADLESS:
+                        input("⚠️ 请在浏览器中手动完成所有任务，完成后按回车键继续...")
+                        continue
+                    else:
+                        return {'success': False, 'error': '需要手动完成任务，请使用半自动模式'}
+
+                # ========== 优先查找 Copy 按钮 ==========
+                copy_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Copy') or contains(text(), '复制')] | //a[contains(text(), 'Copy') or contains(text(), '复制')]")
+                for btn in copy_buttons:
+                    if btn.is_displayed() and btn.is_enabled():
+                        logger.info(f"发现 Copy 按钮: {btn.text}, 自动点击...")
+                        try:
+                            btn.click()
+                            # 点击后，卡密可能被复制到剪贴板，但页面文本中通常已经存在，直接提取
+                            time.sleep(1)
+                            key = self._extract_key_from_text(driver.page_source)
+                            if key:
+                                return {'success': True, 'result': key}
+                            else:
+                                # 如果仍然没有，可能卡密在另一个元素中，尝试查找包含 FREE_ 的文本
+                                body_text = driver.find_element(By.TAG_NAME, "body").text
+                                key_match = re.search(r'FREE_[a-fA-F0-9]{32}', body_text)
+                                if key_match:
+                                    return {'success': True, 'result': key_match.group(0)}
+                        except Exception as e:
+                            logger.warning(f"点击 Copy 按钮失败: {e}")
+
+                # ========== 自动点击唯一按钮（排除 Continue 等） ==========
+                buttons = driver.find_elements(By.XPATH, "//button | //a | //input[@type='button' or @type='submit']")
+                visible_buttons = [btn for btn in buttons if btn.is_displayed() and btn.is_enabled()]
+                # 过滤掉常见的“继续”按钮
+                filtered = []
+                for btn in visible_buttons:
+                    text = btn.text.strip().lower()
+                    if text not in ['continue', '继续', 'next', '下一步']:
+                        filtered.append(btn)
+
+                if len(filtered) == 1:
+                    btn = filtered[0]
+                    logger.info(f"发现唯一按钮: {btn.text}, 自动点击...")
+                    try:
+                        btn.click()
+                        click_count += 1
+                        time.sleep(3)
+                        if driver.current_url == last_url:
+                            logger.warning("点击后 URL 未变化，可能点击无效")
+                        last_url = driver.current_url
+                        continue
+                    except Exception as e:
+                        logger.warning(f"点击按钮失败: {e}")
+
+                # 没有可点击的按钮或按钮数量不为1，等待后重试
+                logger.info("未找到 Copy 按钮或唯一可点击按钮，等待5秒后重试...")
+                time.sleep(5)
+                click_count += 1
+
+            # 最终再尝试提取一次卡密
             time.sleep(5)
-
-            # 检测验证码或任务列表
-            page_source = driver.page_source
-            if 'hcaptcha' in page_source.lower() or 'recaptcha' in page_source.lower():
-                logger.info("检测到验证码，进入半自动处理模式")
-                if not HEADLESS:
-                    input("⚠️ 请在浏览器中手动完成验证码，完成后按回车键继续...")
-                else:
-                    return {'success': False, 'error': '需要验证码，请稍后重试或使用半自动模式'}
-            elif '点击并发送短信' in page_source or '接受通知' in page_source:
-                logger.info("检测到广告任务列表，请手动完成")
-                if not HEADLESS:
-                    input("⚠️ 请在浏览器中手动完成所有任务，完成后按回车键继续...")
-                else:
-                    return {'success': False, 'error': '需要手动完成任务，请使用半自动模式'}
-
-            # 等待卡密出现
-            time.sleep(8)
             key = self._extract_key_from_text(driver.page_source)
             if key:
                 return {'success': True, 'result': key}
-            time.sleep(5)
-            key = self._extract_key_from_text(driver.page_source)
-            if key:
-                return {'success': True, 'result': key}
-            return {'success': False, 'error': '未能提取到卡密'}
+            else:
+                return {'success': False, 'error': '未能提取到卡密，可能任务未完成或页面超时'}
 
         except Exception as e:
             logger.error(f"Selenium 异常: {e}")
@@ -141,7 +191,10 @@ class BypassPlugin(Star):
                 driver.quit()
 
     def _extract_key_from_text(self, text: str) -> Optional[str]:
-        match = re.search(r'FREE_?[a-fA-F0-9]{32}', text, re.IGNORECASE)
+        match = re.search(r'FREE_[a-fA-F0-9]{32}', text, re.IGNORECASE)
+        if match:
+            return match.group(0)
+        match = re.search(r'FREE[a-fA-F0-9]{32}', text, re.IGNORECASE)
         if match:
             key = match.group(0)
             if not key.startswith('FREE_'):
