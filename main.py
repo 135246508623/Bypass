@@ -1,30 +1,20 @@
 import re
-import httpx
+import asyncio
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.event.filter import EventMessageType
 
-@register("astrbot_plugin_bypass", "YourName", "HTTP直连解卡机器人（增强版）", "5.5.0")
+@register("astrbot_plugin_bypass", "YourName", "自动驱动解卡（含Copy点击）", "6.3.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.link_patterns = [
-            r'auth\.platorelay\.com',
-            r'auth\.platoboost\.(?:com|net|click|app|me)',
-            r'deltaios-executor\.com',
-            r'linkvertise\.com',
-            r'work\.ink',
-            r'loot-link\.com',
-            r'rekonise\.com',
-        ]
         self.group_last_call = {}
-        # 多个 User-Agent 轮换
-        self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        ]
 
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
@@ -46,55 +36,43 @@ class BypassPlugin(Star):
         self.group_last_call[group_id] = now
 
         yield event.plain_result("🔍 正在处理，请稍候...")
-        result = await self.try_http(target_url)
+        result = await asyncio.to_thread(self._get_key, target_url)
         if result['success']:
             yield event.plain_result(f"✅ 成功！\n{result['result']}")
         else:
             yield event.plain_result(f"❌ 失败: {result['error']}")
 
-    async def try_http(self, url: str):
-        for ua in self.user_agents:
-            headers = {
-                'User-Agent': ua,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
-            }
+    def _get_key(self, url):
+        try:
+            options = Options()
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.binary_location = "/usr/bin/chromium"
+
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+
+            driver.get(url)
+            driver.implicitly_wait(10)
+            import time
+            time.sleep(5)
+
+            # 点击 Copy 按钮（如果有）
             try:
-                async with httpx.AsyncClient(timeout=15, follow_redirects=True, http2=True) as client:
-                    resp = await client.get(url, headers=headers)
-                    if resp.status_code == 200:
-                        text = resp.text
-                        # 提取 FREE_ 格式
-                        match = re.search(r'FREE_[a-fA-F0-9]{32}', text, re.IGNORECASE)
-                        if match:
-                            return {'success': True, 'result': match.group(0)}
-                        # 尝试无下划线格式
-                        match = re.search(r'FREE[a-fA-F0-9]{32}', text, re.IGNORECASE)
-                        if match:
-                            key = match.group(0)
-                            if not key.startswith('FREE_'):
-                                key = 'FREE_' + key[4:]
-                            return {'success': True, 'result': key}
-                        # 检测成功白名单页面
-                        if 'Successfully whitelisted' in text:
-                            match = re.search(r'FREE_[a-fA-F0-9]{32}', text)
-                            if match:
-                                return {'success': True, 'result': match.group(0)}
-                        # 尝试匹配纯32位十六进制
-                        match = re.search(r'\b[a-fA-F0-9]{32}\b', text)
-                        if match:
-                            return {'success': True, 'result': f"FREE_{match.group(0)}"}
-                    else:
-                        logger.warning(f"HTTP {resp.status_code} with UA {ua[:50]}...")
+                copy_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Copy') or contains(text(), '复制')]")
+                copy_btn.click()
+                logger.info("已点击 Copy 按钮")
+                time.sleep(0.5)
             except Exception as e:
-                logger.warning(f"Request with UA {ua[:50]}... failed: {e}")
-                continue
-        return {'success': False, 'error': '所有请求均未找到卡密。这可能是因为目标网站需要执行 JavaScript，请使用浏览器方案或手动获取。'}
+                logger.warning(f"未找到 Copy 按钮或点击失败: {e}")
+
+            page_text = driver.page_source
+            driver.quit()
+
+            match = re.search(r'FREE_[a-fA-F0-9]{32}', page_text, re.IGNORECASE)
+            if match:
+                return {'success': True, 'result': match.group(0)}
+            return {'success': False, 'error': '未找到卡密'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
