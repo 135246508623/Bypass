@@ -1,2 +1,2 @@
+antiwebx
 selenium
-webdriver-manager
