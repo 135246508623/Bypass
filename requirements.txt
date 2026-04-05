@@ -1,3 +1,2 @@
-undetected-chromedriver
 selenium
-# twocaptcha   # 如果需要自动验证码，取消注释
+webdriver-manager
