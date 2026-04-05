@@ -3,8 +3,13 @@ import asyncio
 import time
 from typing import Optional, Dict, Any
 
-from antiwebx import Chrome
+from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -13,7 +18,7 @@ from astrbot.api.event.filter import EventMessageType
 
 HEADLESS = False   # 半自动模式（遇到验证码时手动处理）
 
-@register("astrbot_plugin_bypass", "YourName", "高速解卡机器人（antiwebx）", "4.2.0")
+@register("astrbot_plugin_bypass", "YourName", "高速解卡机器人（selenium + webdriver-manager）", "4.3.0")
 class BypassPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -71,15 +76,18 @@ class BypassPlugin(Star):
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            # 指定 Chromium 路径（请确认你的系统中 chromium 位于 /usr/bin/chromium）
+            chrome_options.binary_location = "/usr/bin/chromium"
 
-            # 使用 antiwebx 自动处理 Chromium 路径和驱动
-            driver = Chrome(options=chrome_options)
+            # 自动下载并管理 ChromeDriver
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
 
             logger.info(f"正在访问: {url}")
             driver.get(url)
 
             # 等待页面主体加载
-            driver.implicitly_wait(10)
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
 
             # 尝试点击 Continue 按钮
             continue_selectors = [
@@ -90,14 +98,13 @@ class BypassPlugin(Star):
             ]
             for selector in continue_selectors:
                 try:
-                    btn = driver.find_element("xpath", selector)
+                    btn = driver.find_element(By.XPATH, selector)
                     btn.click()
                     logger.info("已点击 Continue 按钮")
                     break
                 except:
                     pass
 
-            # 等待页面跳转或广告加载
             time.sleep(5)
 
             # 检测验证码或任务列表
