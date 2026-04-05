@@ -1,7 +1,7 @@
 name: astrbot_plugin_bypass
-desc: 高速解卡机器人（支持 Delta/Platoboost 等）
+desc: 自动驱动解卡机器人（含Copy点击）
 author: 阿玛特拉斯
-version: 4.2.0
+version: 6.3.0
 support_platforms:
   - aiocqhttp
 astrbot_version: ">=4.16,<5"
